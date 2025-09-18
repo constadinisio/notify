@@ -1,41 +1,66 @@
-# notify_receiver.py
+# notify_receiver_sim_button.py
+import RPi.GPIO as GPIO
+import time
 import paho.mqtt.client as mqtt
 from datetime import datetime
 from notify_alert import enviar_alerta
 from notify_db import guardar_evento
 
-# Configuración
+# Configuración GPIO para el botón
+GPIO.setmode(GPIO.BCM)
+BUTTON_PIN = 17  # BCM17 (pin físico 11)
+# Configura el pin como entrada con resistencia pull-up interna
+GPIO.setup(BUTTON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+
+# Configuración MQTT
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
-MQTT_TOPIC = "notify/#"
+MQTT_TOPIC = "notify/entrada_principal"
 
-HORARIO_DESDE = 13    # 08:00 AM
-HORARIO_HASTA = 20   # 08:00 PM
+# Horario válido
+HORARIO_DESDE = 13  # 13:00 (1 PM)
+HORARIO_HASTA = 20  # 20:00 (8 PM)
 
-# Función al recibir mensaje
+# Función de detección de pulsación del botón
+def detectar_pulsacion(channel):
+    # Cuando el botón es presionado, el pin cambia de HIGH a LOW.
+    # Por eso usamos GPIO.FALLING.
+    if GPIO.input(BUTTON_PIN) == GPIO.LOW:
+        mensaje = "Botón presionado (simulación IR)"
+        hora_actual = datetime.now().hour
+        dentro_del_horario = HORARIO_DESDE <= hora_actual < HORARIO_HASTA
 
-def on_connect(client, userdata, flags, rc):
-    print("✅ Conectado al broker MQTT con código:", rc)
-    client.subscribe(MQTT_TOPIC)
+        # Guardar evento en BD remota
+        guardar_evento(MQTT_TOPIC, mensaje, not dentro_del_horario)
+        print(f"[{datetime.now()}] Simulación: {mensaje}")
 
-def on_message(client, userdata, msg):
-    mensaje = msg.payload.decode()
-    hora_actual = datetime.now().hour
-    dentro_del_horario = HORARIO_DESDE <= hora_actual < HORARIO_HASTA
+        # Si está fuera de horario, enviar alerta
+        if not dentro_del_horario:
+            print("⚠️ ALERTA: Evento de simulación fuera de horario")
+            enviar_alerta(
+              f"*🚨 ALERTA SIMULACIÓN*\n❗ BOTÓN PRESIONADO FUERA DE HORARIO\n🕒 {datetime.now().strftime('%H:%M:%S')}"
+            )
 
-    guardar_evento(msg.topic, mensaje, not dentro_del_horario)
+        # Publicar también por MQTT
+        client.publish(MQTT_TOPIC, mensaje)
 
-    print(f"[{datetime.now()}] Mensaje recibido en {msg.topic}: {mensaje}")
-
-    if not dentro_del_horario:
-        print("⚠️ ALERTA: Movimiento fuera de horario")
-        enviar_alerta(f"*🚨 ALERTA*\n❗ MOVIMIENTO DETECTADO FUERA DE HORARIO\n🕒 {datetime.now().strftime('%H:%M:%S')}")
-
-# Conexión al broker
+# Inicializar cliente MQTT
 client = mqtt.Client()
-client.on_connect = on_connect
-client.on_message = on_message
-
 client.connect(MQTT_BROKER, MQTT_PORT, 60)
-print("⏳ Escuchando eventos de movimiento...")
-client.loop_forever()
+client.loop_start()
+
+# Configurar detection callback para el flanco de bajada
+GPIO.add_event_detect(BUTTON_PIN, GPIO.FALLING, callback=detectar_pulsacion, bouncetime=200)
+
+print("⏳ Presiona el botón para simular una detección...")
+
+try:
+    # Mantener el script corriendo
+    while True:
+        time.sleep(1)
+except KeyboardInterrupt:
+    print("Detenido por usuario")
+finally:
+    GPIO.cleanup()
+    client.loop_stop()
+    client.disconnect()
