@@ -19,7 +19,7 @@ MQTT_TOPIC = "notify/entrada_principal"
 
 # Horario válido
 HORARIO_DESDE = 13  # 13:00 (1 PM)
-HORARIO_HASTA = 20  # 20:00 (8 PM)
+HORARIO_HASTA = 16  # 20:00 (8 PM)
 
 # Función de detección de pulsación del botón
 def detectar_pulsacion(channel):
@@ -64,3 +64,4 @@ finally:
     GPIO.cleanup()
     client.loop_stop()
     client.disconnect()
+
